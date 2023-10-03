@@ -11,7 +11,8 @@ import com.bot4s.telegram.api.declarative.Commands
 import com.bot4s.telegram.api.{AkkaTelegramBot, RequestHandler}
 import com.bot4s.telegram.clients.AkkaHttpClient
 import com.bot4s.telegram.future.Polling
-import com.bot4s.telegram.methods.{ForwardMessage, GetFile, SendAnimation, SendPhoto, SendVideo}
+import com.bot4s.telegram.methods.ChatAction.ChatAction
+import com.bot4s.telegram.methods.{ChatAction, ForwardMessage, GetFile, SendAnimation, SendChatAction, SendPhoto, SendVideo}
 import com.bot4s.telegram.models.{InputFile, Message, PhotoSize}
 import utils.{FileService, UrlService}
 
@@ -55,8 +56,8 @@ class OnyxBot(
           // can not be forwarded either, only a new message
 
           val maybeCaption: Option[String] = makeCaption(msg)
-          publishIfPhoto(msg, maybeCaption)
-          publishIfVideo(msg, maybeCaption)
+          publishIfPhoto(msg, maybeCaption, msg.chat.id)
+          publishIfVideo(msg, maybeCaption, msg.chat.id)
         }
 
         // publish if replied to your own media
@@ -65,11 +66,11 @@ class OnyxBot(
             if (msg.from.isDefined && originalMessage.from.isDefined && msg.from.get == originalMessage.from.get) {
 //              println("can be forwarded")
               val maybeCaption: Option[String] = makeCaption(originalMessage)
-              publishIfPhoto(originalMessage, maybeCaption)
-              publishIfVideo(originalMessage, maybeCaption)
-              publishIfAnimation(originalMessage, maybeCaption)
+              publishIfPhoto(originalMessage, maybeCaption, msg.chat.id)
+              publishIfVideo(originalMessage, maybeCaption, msg.chat.id)
+              publishIfAnimation(originalMessage, maybeCaption, msg.chat.id)
             } else {
-              replyMd("Не могу, запросить должен автор")
+              replyMd("Не могу, запрос публикации должен быть от автора сообщения")
             }
           })
         }
@@ -78,20 +79,32 @@ class OnyxBot(
     }
   }
 
-  private def publishIfAnimation(originalMessage: Message, maybeCaption: Option[String]) = {
+  private def publishIfAnimation(originalMessage: Message, maybeCaption: Option[String], chatId: Long) = {
     originalMessage.animation.foreach(item => {
+      sendAction(ChatAction.UploadVideo, chatId)
       sendAnimation(maybeCaption, item.fileId)
     })
   }
 
-  private def publishIfVideo(msg: Message, maybeCaption: Option[String]) = {
+  private def sendAction(action: ChatAction, chatId: Long) = {
+    request(
+      SendChatAction(
+        chatId,
+        action,
+      )
+    )
+  }
+
+  private def publishIfVideo(msg: Message, maybeCaption: Option[String], chatId: Long) = {
     msg.video.foreach(item => {
+      sendAction(ChatAction.UploadVideoNote, chatId)
       sendVideo(maybeCaption, item.fileId)
     })
   }
 
-  private def publishIfPhoto(msg: Message, maybeCaption: Option[String]) = {
+  private def publishIfPhoto(msg: Message, maybeCaption: Option[String], chatId: Long) = {
     msg.photo.map(_.last.fileId).foreach(fileId => {
+      sendAction(ChatAction.UploadPhoto, chatId)
       sendPhoto(maybeCaption, fileId)
     })
   }
