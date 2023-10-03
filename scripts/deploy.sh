@@ -4,7 +4,7 @@ SERVER="$1"
 sbt docker:publishLocal && docker image save -o /tmp/image tg-bot-user/onyx-telegram-bot:0.1.0 && scp /tmp/image "$SERVER":/home/mark/tgbot/onyx/image
 ssh root@"$SERVER" docker rm -f onyx
 ssh root@"$SERVER" 'bash -c "cat /home/mark/tgbot/onyx/image | docker image load"'
-ssh root@"$SERVER" 'bash -c "docker run -d --restart=unless-stopped --name onyx -e TOKEN=$(cat /home/mark/tgbot/onyx/token.txt) -e MAIN_CHAT_ID=-1001891958439 -e CHAT_ID_TO_FORWARD_TO=-4076585971 tg-bot-user/onyx-telegram-bot:0.1.0"'
+ssh root@"$SERVER" 'bash -c "docker run -d --restart=unless-stopped --name onyx -e TOKEN=$(cat /home/mark/tgbot/onyx/token.txt) -e MAIN_CHAT_ID=-1001891958439 -e CHAT_ID_TO_FORWARD_TO=-1001845453886 tg-bot-user/onyx-telegram-bot:0.1.0"'
 
 
 # then run:
