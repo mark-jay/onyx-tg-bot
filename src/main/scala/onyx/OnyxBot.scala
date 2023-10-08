@@ -19,7 +19,8 @@ import utils.{FileService, UrlService}
 import java.io.File
 import java.nio.file.{Paths, StandardOpenOption}
 import java.util.Date
-import scala.concurrent.Future
+import java.util.concurrent.atomic.AtomicReference
+import scala.concurrent.{Await, Future}
 
 case class OnyxBotConfig(chatId: String, chatIdToForward: String)
 
@@ -39,6 +40,8 @@ class OnyxBot(
       |Аналогичным образом работает если ответить на свое же сообщение(картинку, видео или GIF) текстом содержащим #public
       |""".stripMargin
 
+  private val sent = new AtomicReference[Set[Int]](Set())
+
   onCommand("getChatId") { implicit msg =>
     replyMd(s"chatId = ${msg.chat.id}").void
   }
@@ -49,13 +52,17 @@ class OnyxBot(
 
   onEditedMessage {
     implicit msg => {
-      processMessage(msg)
+      sent.synchronized {
+        processMessage(msg)
+      }
     }
   }
 
   onMessage {
     implicit msg => {
-      processMessage(msg)
+      sent.synchronized {
+        processMessage(msg)
+      }
     }
   }
 
@@ -68,14 +75,14 @@ class OnyxBot(
       // msg.text is used for messages, while msg.caption is used for images
       if (msg.caption.exists(_.contains("#public"))) {
         // can not be forwarded either, only a new message
-        processIncomingMessage(msg, messageChatId)
+        processIncomingMessageIfNeeded(msg, messageChatId)
       }
 
       // publish if replied to your own media
       if (msg.text.exists(_.contains("#public"))) {
         msg.replyToMessage.foreach(originalMessage => {
           if (msg.from.isDefined && originalMessage.from.isDefined && msg.from.get == originalMessage.from.get) {
-            processIncomingMessage(originalMessage, messageChatId)
+            processIncomingMessageIfNeeded(originalMessage, messageChatId)
           } else {
             replyMd("Не могу, запрос публикации должен быть от автора сообщения")
           }
@@ -85,15 +92,32 @@ class OnyxBot(
     Future.unit
   }
 
-  private def processIncomingMessage(msg: Message, messageChatId: Long): Unit = {
-    val maybeCaption: Option[String] = makeCaption(msg)
-    publishIfPhoto(msg, maybeCaption, messageChatId)
-    publishIfVideo(msg, maybeCaption, messageChatId)
-    publishIfAnimation(msg, maybeCaption, messageChatId)
+  private def processIncomingMessageIfNeeded(msg: Message, messageChatId: Long): Future[Unit] = {
+//    println(s"checking if ${sent.get()} contains ${msg.messageId}")
+    if (!sent.get().contains(msg.messageId)) {
+      val maybeCaption: Option[String] = makeCaption(msg)
+      val f1 = publishIfPhoto(msg, maybeCaption, messageChatId)
+      val f2 = publishIfVideo(msg, maybeCaption, messageChatId)
+      val f3 = publishIfAnimation(msg, maybeCaption, messageChatId)
+      val finalResult = for {
+        _ <- f1.getOrElse(Future.successful(()))
+        _ <- f2.getOrElse(Future.successful(()))
+        _ <- f3.getOrElse(Future.successful(()))
+      } yield ()
+      sent.set(sent.get() + msg.messageId)
+      finalResult.failed.foreach(e => {
+        println("failed")
+        e.printStackTrace()
+        sent.set(sent.get() - msg.messageId)
+      })
+      finalResult
+    } else {
+      Future.successful(())
+    }
   }
 
   private def publishIfAnimation(originalMessage: Message, maybeCaption: Option[String], chatId: Long) = {
-    originalMessage.animation.foreach(item => {
+    originalMessage.animation.map(item => {
       sendAction(ChatAction.UploadVideo, chatId)
       sendAnimation(maybeCaption, item.fileId)
     })
@@ -109,14 +133,14 @@ class OnyxBot(
   }
 
   private def publishIfVideo(msg: Message, maybeCaption: Option[String], chatId: Long) = {
-    msg.video.foreach(item => {
+    msg.video.map(item => {
       sendAction(ChatAction.UploadVideoNote, chatId)
       sendVideo(maybeCaption, item.fileId)
     })
   }
 
   private def publishIfPhoto(msg: Message, maybeCaption: Option[String], chatId: Long) = {
-    msg.photo.map(_.last.fileId).foreach(fileId => {
+    msg.photo.map(_.last.fileId).map(fileId => {
       sendAction(ChatAction.UploadPhoto, chatId)
       sendPhoto(maybeCaption, fileId)
     })
