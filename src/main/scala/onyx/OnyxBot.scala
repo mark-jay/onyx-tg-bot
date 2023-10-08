@@ -12,12 +12,13 @@ import com.bot4s.telegram.api.{AkkaTelegramBot, RequestHandler}
 import com.bot4s.telegram.clients.AkkaHttpClient
 import com.bot4s.telegram.future.Polling
 import com.bot4s.telegram.methods.ChatAction.ChatAction
-import com.bot4s.telegram.methods.{ChatAction, ForwardMessage, GetFile, SendAnimation, SendChatAction, SendPhoto, SendVideo}
+import com.bot4s.telegram.methods.{ChatAction, ForwardMessage, GetFile, ParseMode, SendAnimation, SendChatAction, SendPhoto, SendVideo}
 import com.bot4s.telegram.models.{InputFile, Message, PhotoSize}
 import utils.{FileService, UrlService}
 
 import java.io.File
 import java.nio.file.{Paths, StandardOpenOption}
+import java.util.Date
 import scala.concurrent.Future
 
 case class OnyxBotConfig(chatId: String, chatIdToForward: String)
@@ -111,19 +112,42 @@ class OnyxBot(
   }
 
   private def makeCaption(msg: Message) = {
-    // Handle incoming messages (optional, as shown in the previous examples)
-    val fromPart = msg.from.flatMap(user => user.username).map(username => s"[from @${username}] ").getOrElse("")
+    try {
+      //    val chatId = msg.chat.id
+      //    val messageId = msg.messageId
+      val link = s"https://t.me/c/${msg.chat.id.toString.replaceAll("-100", "")}/${msg.messageId}" // Создаем ссылку на сообщение
 
-    // Send the message with the image
-    val maybeCaption = msg.caption.map(caption => fromPart + caption.replaceAll("#public", ""))
-    maybeCaption
+      // Handle incoming messages (optional, as shown in the previous examples)
+      val fromPart = msg.from.flatMap(user => user.username)
+        .map(username => s"[Сообщение](${link}) от [@${username}]")
+        .getOrElse(s"[Сообщение](${link})")
+
+      val finalCaption = msg.caption.map(_.replaceAll("#public", "")) match {
+        case Some(value) if value.replaceAll(" ", "").nonEmpty => {
+          s" :\n${value.trim.replaceAll("  ", " ")}"
+        }
+        case _ => ""
+      }
+      val result = s"${fromPart}${finalCaption}"
+
+      println(s"making caption, result = ${result}")
+      Some(result)
+    } catch {
+      case e: Exception => {
+        System.err.println(s"${new Date().toString} Warn: Failed to make a caption")
+        e.printStackTrace()
+        None
+      }
+    }
   }
 
   private def sendAnimation(maybeCaption: Option[String], fileId: String) = {
     request(SendAnimation(
       chatId = config.chatIdToForward.toLong,
       animation = InputFile(fileId),
-      caption = maybeCaption
+      caption = maybeCaption,
+      parseMode = Some(ParseMode.Markdown),
+      disableNotification = Some(true),
     ))
   }
 
@@ -131,7 +155,9 @@ class OnyxBot(
     request(SendVideo(
       chatId = config.chatIdToForward.toLong,
       video = InputFile(fileId),
-      caption = maybeCaption
+      caption = maybeCaption,
+      parseMode = Some(ParseMode.Markdown),
+      disableNotification = Some(true),
     ))
   }
 
@@ -139,7 +165,9 @@ class OnyxBot(
     request(SendPhoto(
       chatId = config.chatIdToForward.toLong,
       photo = InputFile(fileId),
-      caption = maybeCaption
+      caption = maybeCaption,
+      parseMode = Some(ParseMode.Markdown),
+      disableNotification = Some(true),
     ))
   }
 
