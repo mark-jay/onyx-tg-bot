@@ -115,6 +115,7 @@ class OnyxBot(
     try {
       //    val chatId = msg.chat.id
       //    val messageId = msg.messageId
+      // works, but hacky and probably not documented:)
       val link = s"https://t.me/c/${msg.chat.id.toString.replaceAll("-100", "")}/${msg.messageId}" // Создаем ссылку на сообщение
 
       // Handle incoming messages (optional, as shown in the previous examples)
