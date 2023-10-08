@@ -58,6 +58,7 @@ class OnyxBot(
           val maybeCaption: Option[String] = makeCaption(msg)
           publishIfPhoto(msg, maybeCaption, msg.chat.id)
           publishIfVideo(msg, maybeCaption, msg.chat.id)
+          publishIfAnimation(msg, maybeCaption, msg.chat.id)
         }
 
         // publish if replied to your own media
