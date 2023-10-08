@@ -10,6 +10,7 @@ object Main extends App {
   private val token: String = System.getenv("TOKEN")
   private val mainChatId: String = System.getenv("MAIN_CHAT_ID")
   private val chatIdToForwardTo: String = System.getenv("CHAT_ID_TO_FORWARD_TO")
+  println(s"starting with token ${token.split(":")(0)}")
   val bot = new OnyxBot(
     token,
     OnyxBotConfig(mainChatId, chatIdToForwardTo),
