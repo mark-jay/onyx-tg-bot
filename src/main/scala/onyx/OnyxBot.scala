@@ -68,23 +68,14 @@ class OnyxBot(
       // msg.text is used for messages, while msg.caption is used for images
       if (msg.caption.exists(_.contains("#public"))) {
         // can not be forwarded either, only a new message
-
-        val maybeCaption: Option[String] = makeCaption(msg)
-        publishIfPhoto(msg, maybeCaption, messageChatId)
-        publishIfVideo(msg, maybeCaption, messageChatId)
-        publishIfAnimation(msg, maybeCaption, messageChatId)
+        processIncomingMessage(msg, messageChatId)
       }
 
       // publish if replied to your own media
       if (msg.text.exists(_.contains("#public"))) {
         msg.replyToMessage.foreach(originalMessage => {
           if (msg.from.isDefined && originalMessage.from.isDefined && msg.from.get == originalMessage.from.get) {
-            println(s"originalMessage = ${originalMessage}")
-            //              println("can be forwarded")
-            val maybeCaption: Option[String] = makeCaption(originalMessage)
-            publishIfPhoto(originalMessage, maybeCaption, messageChatId)
-            publishIfVideo(originalMessage, maybeCaption, messageChatId)
-            publishIfAnimation(originalMessage, maybeCaption, messageChatId)
+            processIncomingMessage(originalMessage, messageChatId)
           } else {
             replyMd("Не могу, запрос публикации должен быть от автора сообщения")
           }
@@ -92,6 +83,13 @@ class OnyxBot(
       }
     }
     Future.unit
+  }
+
+  private def processIncomingMessage(msg: Message, messageChatId: Long): Unit = {
+    val maybeCaption: Option[String] = makeCaption(msg)
+    publishIfPhoto(msg, maybeCaption, messageChatId)
+    publishIfVideo(msg, maybeCaption, messageChatId)
+    publishIfAnimation(msg, maybeCaption, messageChatId)
   }
 
   private def publishIfAnimation(originalMessage: Message, maybeCaption: Option[String], chatId: Long) = {
