@@ -2,6 +2,7 @@ package onyx
 
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.{HttpRequest, HttpResponse}
+import akka.pattern.StatusReply.Success
 import akka.stream.IOResult
 import akka.stream.scaladsl.Sink
 import akka.util.ByteString
@@ -12,7 +13,7 @@ import com.bot4s.telegram.api.{AkkaTelegramBot, RequestHandler}
 import com.bot4s.telegram.clients.AkkaHttpClient
 import com.bot4s.telegram.future.Polling
 import com.bot4s.telegram.methods.ChatAction.ChatAction
-import com.bot4s.telegram.methods.{ChatAction, ForwardMessage, GetFile, ParseMode, SendAnimation, SendChatAction, SendPhoto, SendVideo}
+import com.bot4s.telegram.methods.{ChatAction, ForwardMessage, GetFile, ParseMode, SendAnimation, SendChatAction, SendMessage, SendPhoto, SendVideo}
 import com.bot4s.telegram.models.{InputFile, Message, PhotoSize}
 import utils.{FileService, UrlService}
 
@@ -21,6 +22,7 @@ import java.nio.file.{Paths, StandardOpenOption}
 import java.util.Date
 import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.{Await, Future}
+import scala.util.Try
 
 case class OnyxBotConfig(chatId: String, chatIdToForward: String)
 
@@ -76,6 +78,7 @@ class OnyxBot(
       if (msg.caption.exists(_.contains("#public"))) {
         // can not be forwarded either, only a new message
         processIncomingMessageIfNeeded(msg, messageChatId)
+          .onComplete(maybeMessages => processMessagesSent(maybeMessages, msg.messageId))
       }
 
       // publish if replied to your own media
@@ -83,6 +86,7 @@ class OnyxBot(
         msg.replyToMessage.foreach(originalMessage => {
           if (msg.from.isDefined && originalMessage.from.isDefined && msg.from.get == originalMessage.from.get) {
             processIncomingMessageIfNeeded(originalMessage, messageChatId)
+              .onComplete(maybeMessages => processMessagesSent(maybeMessages, msg.messageId))
           } else {
             replyMd("Не могу, запрос публикации должен быть от автора сообщения")
           }
@@ -92,7 +96,23 @@ class OnyxBot(
     Future.unit
   }
 
-  private def processIncomingMessageIfNeeded(msg: Message, messageChatId: Long): Future[Unit] = {
+  private def processMessagesSent(maybeMessages: Try[List[Message]], replyToMessageId: Int) = {
+      maybeMessages.foreach(messages => {
+        messages.foreach(message => {
+          val text = s"[Опубликовано](${makeLink(s"${message.chat.id}", message.messageId)})"
+          // println(s"text = ${text}")
+          request(SendMessage(
+            chatId = config.chatId.toLong,
+            text = text,
+            replyToMessageId = Some(replyToMessageId),
+            parseMode = Some(ParseMode.Markdown),
+            disableNotification = Some(true),
+          ))
+        })
+      })
+  }
+
+  private def processIncomingMessageIfNeeded(msg: Message, messageChatId: Long): Future[List[Message]] = {
 //    println(s"checking if ${sent.get()} contains ${msg.messageId}")
     if (!sent.get().contains(msg.messageId)) {
       val maybeCaption: Option[String] = makeCaption(msg)
@@ -100,10 +120,10 @@ class OnyxBot(
       val f2 = publishIfVideo(msg, maybeCaption, messageChatId)
       val f3 = publishIfAnimation(msg, maybeCaption, messageChatId)
       val finalResult = for {
-        _ <- f1.getOrElse(Future.successful(()))
-        _ <- f2.getOrElse(Future.successful(()))
-        _ <- f3.getOrElse(Future.successful(()))
-      } yield ()
+        v1 <- f1
+        v2 <- f2
+        v3 <- f3
+      } yield List(v1, v2, v3).flatMap(_.toIterable)
       sent.set(sent.get() + msg.messageId)
       finalResult.failed.foreach(e => {
         println("failed")
@@ -112,7 +132,7 @@ class OnyxBot(
       })
       finalResult
     } else {
-      Future.successful(())
+      Future.successful(List())
     }
   }
 
@@ -121,6 +141,8 @@ class OnyxBot(
       sendAction(ChatAction.UploadVideo, chatId)
       sendAnimation(maybeCaption, item.fileId)
     })
+      .map(item => item.map(Some(_)))
+      .getOrElse(Future.successful(None))
   }
 
   private def sendAction(action: ChatAction, chatId: Long) = {
@@ -137,6 +159,8 @@ class OnyxBot(
       sendAction(ChatAction.UploadVideoNote, chatId)
       sendVideo(maybeCaption, item.fileId)
     })
+      .map(item => item.map(Some(_)))
+      .getOrElse(Future.successful(None))
   }
 
   private def publishIfPhoto(msg: Message, maybeCaption: Option[String], chatId: Long) = {
@@ -144,14 +168,21 @@ class OnyxBot(
       sendAction(ChatAction.UploadPhoto, chatId)
       sendPhoto(maybeCaption, fileId)
     })
+      .map(item => item.map(Some(_)))
+      .getOrElse(Future.successful(None))
+  }
+
+  private def makeLink(chatId: String, messageId: Int): String = {
+    //    val chatId = msg.chat.id
+    //    val messageId = msg.messageId
+    // works, but hacky and probably not documented:)
+    val link = s"https://t.me/c/${chatId.replaceAll("-100", "")}/${messageId}" // Создаем ссылку на сообщение
+    link
   }
 
   private def makeCaption(msg: Message) = {
     try {
-      //    val chatId = msg.chat.id
-      //    val messageId = msg.messageId
-      // works, but hacky and probably not documented:)
-      val link = s"https://t.me/c/${msg.chat.id.toString.replaceAll("-100", "")}/${msg.messageId}" // Создаем ссылку на сообщение
+      val link = makeLink(msg.chat.id.toString, msg.messageId)
 
       // Handle incoming messages (optional, as shown in the previous examples)
       val fromPart = msg.from.flatMap(user => user.username)
